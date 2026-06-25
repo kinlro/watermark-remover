@@ -761,11 +761,15 @@
                 
                 updateProgress(95, '正在生成图片...');
                 
-                resultImageData = canvas.toDataURL('image/png');
+                // 生成高质量 PNG
+                resultImageData = canvas.toDataURL('image/png', 1.0);
                 
                 document.getElementById('originalImage').src = originalImageData;
                 document.getElementById('resultImage').src = resultImageData;
                 compareSection.classList.add('active');
+                
+                // 设置下载按钮
+                setupDownloadButton(canvas);
                 
                 compareSection.scrollIntoView({ behavior: 'smooth' });
                 
@@ -781,6 +785,43 @@
                 setTimeout(() => {
                     progressContainer.classList.remove('active');
                 }, 2000);
+            }
+        }
+
+        // 设置下载按钮
+        function setupDownloadButton(canvas) {
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            // 尝试多种下载方式
+            try {
+                // 方式1: 转换为 Blob 下载
+                canvas.toBlob(function(blob) {
+                    const url = URL.createObjectURL(blob);
+                    downloadBtn.href = url;
+                    downloadBtn.download = 'removed-watermark-' + Date.now() + '.png';
+                    
+                    // 点击事件
+                    downloadBtn.onclick = function(e) {
+                        e.preventDefault();
+                        
+                        // 创建临时链接
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'removed-watermark-' + Date.now() + '.png';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        
+                        // 移动端提示
+                        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                            alert('图片已保存，请在相册中查看。如果未保存成功，请长按图片选择"保存图片"');
+                        }
+                    };
+                }, 'image/png', 1.0);
+            } catch (e) {
+                // 方式2: 使用 data URL
+                downloadBtn.href = resultImageData;
+                downloadBtn.download = 'removed-watermark.png';
             }
         }
 
@@ -836,14 +877,48 @@
             // 检测高对比度边缘（可能是水印）
             const edgeMask = detectEdges(data, w, h);
             
+            // 扩展边缘区域
+            expandMask(edgeMask, w, h);
+            
             // 使用周围像素填充边缘区域
             inpaintRegion(data, edgeMask, w, h);
             
-            // 应用平滑
-            smoothRegion(data, w, h);
+            // 多次平滑处理
+            for (let i = 0; i < 3; i++) {
+                smoothRegion(data, w, h);
+            }
             
             // 写回画布
             ctx.putImageData(imageData, x, y);
+        }
+
+        // 扩展掩码区域
+        function expandMask(mask, width, height) {
+            const newMask = new Uint8Array(mask);
+            
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const idx = y * width + x;
+                    
+                    if (mask[idx] === 1) {
+                        // 扩展周围像素
+                        for (let dy = -2; dy <= 2; dy++) {
+                            for (let dx = -2; dx <= 2; dx++) {
+                                const ny = y + dy;
+                                const nx = x + dx;
+                                if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                                    newMask[ny * width + nx] = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 复制回原始掩码
+            for (let i = 0; i < mask.length; i++) {
+                mask[i] = newMask[i];
+            }
         }
 
         // 边缘检测
